@@ -1,268 +1,131 @@
 """Stargazing sensor platform."""
+from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
-from homeassistant.const import STATE_UNKNOWN
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from homeassistant.util import dt as dt_util
+from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import (
-    ASTROWEATHER_WEATHER,
-    DOMAIN,
-    SENSOR_NEXT_EXCEPTIONAL,
-    SENSOR_OPTIMAL_END,
-    SENSOR_OPTIMAL_START,
-    SENSOR_RATING,
-    SENSOR_SCORE,
-    SENSOR_UPCOMING_EVENTS,
-    UPDATE_INTERVAL_SCORE,
-)
+from .const import DOMAIN
+from .scoring import StargazingScoringEngine
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
-    """Set up Stargazing sensors."""
-    try:
-        _LOGGER.info("Setting up Stargazing sensor platform")
+    """Set up stargazing sensors from config entry."""
+    # Get the notify service from config
+    notify_service = config_entry.data.get("notify_service", "notify.mandalore")
 
-        # Get shared data
-        if DOMAIN not in hass.data:
-            _LOGGER.error("Stargazing data not found in hass.data")
-            return
+    # Create scoring engine with default thresholds
+    scoring_engine = StargazingScoringEngine(
+        min_cloudless=95,
+        min_transparency=70,
+        min_seeing=65,
+    )
 
-        data = hass.data[DOMAIN]
+    # Create the sensor
+    sensor = StargazingQualitySensor(
+        hass=hass,
+        config_entry=config_entry,
+        scoring_engine=scoring_engine,
+        notify_service=notify_service,
+    )
 
-        # Create sensor entities
-        entities = [
-            StargazingScoreSensor(hass, data),
-            StargazingRatingSensor(hass, data),
-            OptimalViewingStartSensor(hass, data),
-            OptimalViewingEndSensor(hass, data),
-            NextExceptionalNightSensor(hass, data),
-            UpcomingAstronomyEventsSensor(hass, data),
-        ]
-
-        async_add_entities(entities)
-        _LOGGER.info(f"Added {len(entities)} Stargazing sensors")
-
-        # Set up update loop
-        hass.loop.create_task(_setup_update_loop(hass, data))
-
-    except Exception as e:
-        _LOGGER.error(f"Error setting up Stargazing sensors: {e}")
+    async_add_entities([sensor], update_before_add=True)
 
 
-async def _setup_update_loop(hass: HomeAssistant, data):
-    """Set up periodic update loop."""
-    while True:
+class StargazingQualitySensor(SensorEntity):
+    """Sensor for stargazing quality score."""
+
+    _attr_name = "Stargazing Quality"
+    _attr_unique_id = "stargazing_quality_score"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:star"
+    _attr_has_entity_name = False
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        scoring_engine: StargazingScoringEngine,
+        notify_service: str,
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self.config_entry = config_entry
+        self.scoring_engine = scoring_engine
+        self.notify_service = notify_service
+        self._attr_native_value = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register state change listener."""
+        # Listen for AstroWeather updates
+        @callback
+        def async_weather_state_listener(event):
+            """Handle weather state changes."""
+            self.async_schedule_update_ha_state(True)
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                ["weather.astroweather_backyard"],
+                async_weather_state_listener,
+            )
+        )
+
+        # Also do initial update
+        await self.async_update()
+
+    async def async_update(self) -> None:
+        """Update the sensor value."""
         try:
-            await data.update_stargazing_data()
+            weather_state = self.hass.states.get("weather.astroweather_backyard")
 
-            # Check for notifications
-            score = data.last_score or 0
-            # Check every UPDATE_INTERVAL_SCORE seconds (60 by default)
-            # Only notify if score >= 80
-            if score >= 80:
-                await data.check_and_notify()
+            if not weather_state or weather_state.state in ("unknown", "unavailable"):
+                self._attr_native_value = None
+                return
 
-            await asyncio.sleep(UPDATE_INTERVAL_SCORE)
+            # Calculate score
+            attrs = weather_state.attributes
+            score = self.scoring_engine.calculate_score(attrs)
+
+            self._attr_native_value = score
 
         except Exception as e:
-            _LOGGER.error(f"Error in update loop: {e}")
-            await asyncio.sleep(UPDATE_INTERVAL_SCORE)
-
-
-class StargazingBaseSensor(SensorEntity):
-    """Base class for Stargazing sensors."""
-
-    _attr_has_entity_name = True
-    _attr_should_poll = False
-
-    def __init__(self, hass: HomeAssistant, data):
-        """Initialize sensor.
-
-        Args:
-            hass: Home Assistant instance
-            data: Shared StargazingData instance
-        """
-        self.hass = hass
-        self.data = data
-        self._attr_name = self.entity_description
-        self._attr_unique_id = f"{DOMAIN}_{self._sensor_type}"
-
-        # Subscribe to astroweather updates
-        hass.bus.async_listen("state_changed", self._on_state_changed)
-
-    async def _on_state_changed(self, event):
-        """Handle state change events."""
-        if event.data.get("entity_id") == ASTROWEATHER_WEATHER:
-            # Astroweather updated, update our sensors
-            await self.async_update_ha_state(force_refresh=True)
-
-
-class StargazingScoreSensor(StargazingBaseSensor):
-    """Sensor for stargazing quality score (0-100)."""
-
-    _sensor_type = "quality_score"
-    entity_description = "Quality Score"
-
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_unit_of_measurement = "%"
-    _attr_icon = "mdi:star"
+            _LOGGER.error(f"Error updating stargazing sensor: {e}")
+            self._attr_native_value = None
 
     @property
-    def state(self) -> Optional[int]:
-        """Return quality score."""
-        return self.data.last_score
-
-    @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional attributes."""
-        breakdown = self.data.last_score or 0
-        return {
-            "rating": self.data.scoring_engine.get_rating(breakdown),
-            "emoji": self.data.scoring_engine.get_rating_emoji(breakdown),
-            "last_updated": datetime.now().isoformat(),
-        }
+        try:
+            weather_state = self.hass.states.get("weather.astroweather_backyard")
+            if not weather_state or weather_state.state in ("unknown", "unavailable"):
+                return {}
 
+            attrs = weather_state.attributes
+            score = self._attr_native_value or 0
 
-class StargazingRatingSensor(StargazingBaseSensor):
-    """Sensor for human-readable stargazing rating."""
-
-    _sensor_type = "rating"
-    entity_description = "Rating"
-
-    _attr_icon = "mdi:sparkles"
-
-    @property
-    def state(self) -> str:
-        """Return rating."""
-        if self.data.last_score is None:
-            return STATE_UNKNOWN
-        return self.data.scoring_engine.get_rating(self.data.last_score)
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return additional attributes."""
-        if self.data.last_score is None:
+            return {
+                "rating": self.scoring_engine.get_rating(int(score)),
+                "emoji": self.scoring_engine.get_rating_emoji(int(score)),
+                "cloudless": attrs.get("cloudless_percentage", 0),
+                "transparency": attrs.get("transparency_percentage", 0),
+                "seeing": attrs.get("seeing_percentage", 0),
+                "calm": attrs.get("calm_percentage", 0),
+                "moon_phase": attrs.get("moon_phase", 0),
+            }
+        except Exception as e:
+            _LOGGER.error(f"Error getting attributes: {e}")
             return {}
-
-        score = self.data.last_score
-        emoji = self.data.scoring_engine.get_rating_emoji(score)
-        return {
-            "score": score,
-            "emoji": emoji,
-            "description": f"{emoji} {self.state}",
-        }
-
-
-class OptimalViewingStartSensor(StargazingBaseSensor):
-    """Sensor for optimal viewing window start time."""
-
-    _sensor_type = "optimal_viewing_start"
-    entity_description = "Optimal Viewing Start"
-
-    _attr_icon = "mdi:sunset-down"
-
-    @property
-    def state(self) -> str:
-        """Return optimal viewing start time."""
-        return STATE_UNKNOWN  # Will be updated by async_update
-
-
-class OptimalViewingEndSensor(StargazingBaseSensor):
-    """Sensor for optimal viewing window end time."""
-
-    _sensor_type = "optimal_viewing_end"
-    entity_description = "Optimal Viewing End"
-
-    _attr_icon = "mdi:moon-waning-crescent"
-
-    @property
-    def state(self) -> str:
-        """Return optimal viewing end time."""
-        return STATE_UNKNOWN  # Will be updated by async_update
-
-
-class NextExceptionalNightSensor(StargazingBaseSensor):
-    """Sensor for next night with exceptional conditions (score ≥90)."""
-
-    _sensor_type = "next_exceptional_night"
-    entity_description = "Next Exceptional Night"
-
-    _attr_icon = "mdi:calendar-star"
-
-    @property
-    def state(self) -> str:
-        """Return next exceptional night."""
-        # This would need historical data tracking
-        # For now, return TBD
-        return "TBD"
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return additional attributes."""
-        return {
-            "note": "Requires historical tracking - coming in future update"
-        }
-
-
-class UpcomingAstronomyEventsSensor(StargazingBaseSensor):
-    """Sensor for upcoming astronomy events."""
-
-    _sensor_type = "upcoming_astronomy_events"
-    entity_description = "Upcoming Events"
-
-    _attr_icon = "mdi:meteor"
-
-    @property
-    def state(self) -> str:
-        """Return count of upcoming events."""
-        if not self.data.events_fetcher or not self.data.events_fetcher.events:
-            return "0"
-        return str(len(self.data.events_fetcher.events))
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return event details."""
-        if not self.data.events_fetcher or not self.data.events_fetcher.events:
-            return {"events": [], "summary": "No upcoming events"}
-
-        events = []
-        now = datetime.now()
-
-        for event in self.data.events_fetcher.events[:5]:  # Next 5 events
-            event_time = event.get("datetime", now)
-            days_until = (event_time - now).days
-
-            events.append(
-                {
-                    "name": event.get("name", "Unknown"),
-                    "type": event.get("type", "unknown"),
-                    "datetime": event_time.isoformat(),
-                    "description": event.get("description", ""),
-                    "days_until": days_until,
-                }
-            )
-
-        return {
-            "events": events,
-            "summary": self.data.events_fetcher.format_events_summary(),
-            "last_updated": (
-                self.data.events_fetcher.last_updated.isoformat()
-                if self.data.events_fetcher.last_updated
-                else "Never"
-            ),
-        }
