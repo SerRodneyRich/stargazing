@@ -78,7 +78,7 @@ async def async_setup_entry(
         NextEvent3Sensor(hass, entry, events_fetcher),
     ]
 
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities, update_before_add=False)
 
 
 async def async_setup_platform(
