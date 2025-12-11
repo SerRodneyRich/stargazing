@@ -4,7 +4,32 @@ A custom Home Assistant integration that monitors stargazing conditions and noti
 
 ## Quick Start
 
-### 1. Installation
+### Option 1: HACS Installation (Recommended) ⭐
+
+1. **Add Custom Repository**
+   - Home Assistant → Settings → Devices & Services
+   - Click "Create Automation" → Search "HACS"
+   - Or go directly to HACS in sidebar
+   - Click 3-dots → Custom repositories
+   - Add: `https://github.com/yourusername/stargazing`
+   - Category: Integration
+
+2. **Install Integration**
+   - Search for "Stargazing"
+   - Click Install
+   - Restart Home Assistant
+
+3. **Configure**
+   - Add to `configuration.yaml`:
+     ```yaml
+     stargazing:
+       notify_service: notify.mandalore
+     ```
+
+4. **Test**
+   - Developer Tools → Services → `stargazing.send_test_notification`
+
+### Option 2: Manual Installation
 
 Copy the `stargazing` folder to your Home Assistant `custom_components` directory:
 
@@ -12,22 +37,7 @@ Copy the `stargazing` folder to your Home Assistant `custom_components` director
 cp -r stargazing /path/to/your/HA/config/custom_components/
 ```
 
-### 2. Configure
-
-Add to your `configuration.yaml`:
-
-```yaml
-stargazing:
-  notify_service: notify.mandalore
-```
-
-### 3. Restart
-
-Restart Home Assistant in Settings → System → Restart
-
-### 4. Test
-
-Go to Developer Tools → Services → `stargazing.send_test_notification`
+Then configure and restart as above.
 
 ## Features
 
