@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Stargazing Conditions",
+        "description": "Configure your stargazing monitoring integration. This integration requires the AstroWeather integration to be installed and configured.",
+        "data": {
+          "notify_service": "Notification Service",
+          "minimum_score_notify": "Minimum Score for Notifications",
+          "minimum_cloudless": "Minimum Cloudless Percentage",
+          "minimum_transparency": "Minimum Transparency Percentage",
+          "minimum_seeing": "Minimum Seeing Percentage",
+          "zip_code": "ZIP Code (for astronomy events)"
+        },
+        "data_description": {
+          "notify_service": "The notification service to use (e.g., notify.mobile_app_iphone)",
+          "minimum_score_notify": "Only send notifications when quality score is above this threshold (0-100)",
+          "minimum_cloudless": "Minimum cloudless percentage required for good conditions (recommend 90+)",
+          "minimum_transparency": "Minimum atmospheric transparency required (recommend 70+)",
+          "minimum_seeing": "Minimum seeing quality required (recommend 65+)",
+          "zip_code": "Your ZIP code for fetching local astronomy events"
+        }
+      }
+    },
+    "error": {
+      "astroweather_not_found": "AstroWeather integration not found. Please install and configure AstroWeather first.",
+      "unknown": "Unexpected error occurred. Please check the logs."
+    },
+    "abort": {
+      "already_configured": "Stargazing Conditions is already configured. Only one instance is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Stargazing Options",
+        "description": "Update your stargazing monitoring settings. Changes will take effect immediately without requiring a restart.",
+        "data": {
+          "notify_service": "Notification Service",
+          "minimum_score_notify": "Minimum Score for Notifications",
+          "minimum_cloudless": "Minimum Cloudless Percentage",
+          "minimum_transparency": "Minimum Transparency Percentage",
+          "minimum_seeing": "Minimum Seeing Percentage",
+          "zip_code": "ZIP Code (for astronomy events)"
+        },
+        "data_description": {
+          "notify_service": "The notification service to use (e.g., notify.mobile_app_iphone)",
+          "minimum_score_notify": "Only send notifications when quality score is above this threshold (0-100)",
+          "minimum_cloudless": "Minimum cloudless percentage required for good conditions (recommend 90+)",
+          "minimum_transparency": "Minimum atmospheric transparency required (recommend 70+)",
+          "minimum_seeing": "Minimum seeing quality required (recommend 65+)",
+          "zip_code": "Your ZIP code for fetching local astronomy events"
+        }
+      }
+    }
+  }
+}

@@ -6,17 +6,76 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    CONF_MIN_CLOUDLESS,
+    CONF_MIN_TRANSPARENCY,
+    CONF_MIN_SEEING,
+    CONF_ZIP_CODE,
+    DEFAULT_MIN_CLOUDLESS,
+    DEFAULT_MIN_TRANSPARENCY,
+    DEFAULT_MIN_SEEING,
+)
 from .scoring import StargazingScoringEngine
 from .astronomy_events import AstronomyEventsFetcher
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up stargazing sensors from a config entry."""
+    # Get configuration from entry
+    config = entry.data
+    options = entry.options
+
+    # Merge config and options (options take precedence)
+    min_cloudless = options.get(CONF_MIN_CLOUDLESS, config.get(CONF_MIN_CLOUDLESS, DEFAULT_MIN_CLOUDLESS))
+    min_transparency = options.get(CONF_MIN_TRANSPARENCY, config.get(CONF_MIN_TRANSPARENCY, DEFAULT_MIN_TRANSPARENCY))
+    min_seeing = options.get(CONF_MIN_SEEING, config.get(CONF_MIN_SEEING, DEFAULT_MIN_SEEING))
+    zip_code = options.get(CONF_ZIP_CODE, config.get(CONF_ZIP_CODE, "88431"))
+
+    # Create scoring engine with configured standards
+    scoring_engine = StargazingScoringEngine(
+        min_cloudless=min_cloudless,
+        min_transparency=min_transparency,
+        min_seeing=min_seeing,
+    )
+
+    # Initialize events fetcher
+    events_fetcher = None
+    try:
+        weather_state = hass.states.get("weather.astroweather_backyard")
+        if weather_state:
+            attrs = weather_state.attributes
+            lat = float(attrs.get("latitude", 35.0071952714019))
+            lon = float(attrs.get("longitude", -104.155240058899))
+            events_fetcher = AstronomyEventsFetcher(lat, lon, zip_code)
+            await events_fetcher.fetch_events()
+    except Exception as e:
+        _LOGGER.error(f"Error initializing events fetcher: {e}")
+
+    # Create all sensor entities
+    entities = [
+        StargazingQualitySensor(hass, entry, scoring_engine),
+        StargazingRatingSensor(hass, entry, scoring_engine),
+        OptimalViewingStartSensor(hass, entry),
+        OptimalViewingEndSensor(hass, entry),
+        UpcomingEventsSensor(hass, entry, events_fetcher),
+    ]
+
+    async_add_entities(entities, update_before_add=True)
 
 
 async def async_setup_platform(
@@ -25,7 +84,7 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: dict | None = None,
 ) -> None:
-    """Set up stargazing sensors from YAML configuration."""
+    """Set up stargazing sensors from YAML configuration (legacy support)."""
     # Get config from discovery_info (passed from __init__.py)
     if discovery_info:
         notify_service = discovery_info.get("notify_service", "notify.mandalore")
@@ -55,13 +114,13 @@ async def async_setup_platform(
     except Exception as e:
         _LOGGER.error(f"Error initializing events fetcher: {e}")
 
-    # Create all sensor entities
+    # Create all sensor entities (legacy - no config entry)
     entities = [
-        StargazingQualitySensor(hass, scoring_engine),
-        StargazingRatingSensor(hass, scoring_engine),
-        OptimalViewingStartSensor(hass),
-        OptimalViewingEndSensor(hass),
-        UpcomingEventsSensor(hass, events_fetcher),
+        StargazingQualitySensor(hass, None, scoring_engine),
+        StargazingRatingSensor(hass, None, scoring_engine),
+        OptimalViewingStartSensor(hass, None),
+        OptimalViewingEndSensor(hass, None),
+        UpcomingEventsSensor(hass, None, events_fetcher),
     ]
 
     async_add_entities(entities, update_before_add=True)
@@ -70,13 +129,25 @@ async def async_setup_platform(
 class StargazingBaseSensor(SensorEntity):
     """Base sensor for stargazing."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, hass: HomeAssistant) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | None) -> None:
         """Initialize the sensor."""
         self.hass = hass
+        self._entry = entry
         self._attr_native_value = None
+
+        # Set up device info if we have a config entry
+        if entry:
+            self._attr_device_info = DeviceInfo(
+                entry_type=DeviceEntryType.SERVICE,
+                identifiers={(DOMAIN, entry.entry_id)},
+                name="Stargazing Conditions",
+                manufacturer="Stargazing Integration",
+                model="Astronomy Monitor",
+                sw_version="1.0.0",
+            )
 
     async def async_added_to_hass(self) -> None:
         """Register state change listener."""
@@ -101,16 +172,20 @@ class StargazingBaseSensor(SensorEntity):
 class StargazingQualitySensor(StargazingBaseSensor):
     """Sensor for stargazing quality score."""
 
-    _attr_name = "Stargazing Quality"
-    _attr_unique_id = "stargazing_quality_score"
+    _attr_name = "Quality"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_icon = "mdi:star"
 
-    def __init__(self, hass: HomeAssistant, scoring_engine: StargazingScoringEngine) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | None, scoring_engine: StargazingScoringEngine) -> None:
         """Initialize sensor with scoring engine."""
-        super().__init__(hass)
+        super().__init__(hass, entry)
         self.scoring_engine = scoring_engine
+        # Set unique_id based on entry or use legacy ID
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_quality_score"
+        else:
+            self._attr_unique_id = "stargazing_quality_score"
 
     async def async_update(self) -> None:
         """Update the sensor value."""
@@ -155,14 +230,18 @@ class StargazingQualitySensor(StargazingBaseSensor):
 class StargazingRatingSensor(StargazingBaseSensor):
     """Sensor for stargazing rating (EXCEPTIONAL/AMAZING/Good/Poor)."""
 
-    _attr_name = "Stargazing Rating"
-    _attr_unique_id = "stargazing_rating"
+    _attr_name = "Rating"
     _attr_icon = "mdi:sparkles"
 
-    def __init__(self, hass: HomeAssistant, scoring_engine: StargazingScoringEngine) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | None, scoring_engine: StargazingScoringEngine) -> None:
         """Initialize sensor with scoring engine."""
-        super().__init__(hass)
+        super().__init__(hass, entry)
         self.scoring_engine = scoring_engine
+        # Set unique_id based on entry or use legacy ID
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_rating"
+        else:
+            self._attr_unique_id = "stargazing_rating"
 
     async def async_update(self) -> None:
         """Update the sensor value."""
@@ -203,9 +282,17 @@ class StargazingRatingSensor(StargazingBaseSensor):
 class OptimalViewingStartSensor(StargazingBaseSensor):
     """Sensor for optimal viewing start time."""
 
-    _attr_name = "Stargazing Optimal Start"
-    _attr_unique_id = "stargazing_optimal_start"
+    _attr_name = "Optimal Start"
     _attr_icon = "mdi:sunset-down"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | None) -> None:
+        """Initialize the sensor."""
+        super().__init__(hass, entry)
+        # Set unique_id based on entry or use legacy ID
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_optimal_start"
+        else:
+            self._attr_unique_id = "stargazing_optimal_start"
 
     async def async_update(self) -> None:
         """Update the sensor value."""
@@ -227,9 +314,17 @@ class OptimalViewingStartSensor(StargazingBaseSensor):
 class OptimalViewingEndSensor(StargazingBaseSensor):
     """Sensor for optimal viewing end time."""
 
-    _attr_name = "Stargazing Optimal End"
-    _attr_unique_id = "stargazing_optimal_end"
+    _attr_name = "Optimal End"
     _attr_icon = "mdi:moon-waning-crescent"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | None) -> None:
+        """Initialize the sensor."""
+        super().__init__(hass, entry)
+        # Set unique_id based on entry or use legacy ID
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_optimal_end"
+        else:
+            self._attr_unique_id = "stargazing_optimal_end"
 
     async def async_update(self) -> None:
         """Update the sensor value."""
@@ -255,17 +350,36 @@ class OptimalViewingEndSensor(StargazingBaseSensor):
 class UpcomingEventsSensor(SensorEntity):
     """Sensor for upcoming astronomy events."""
 
-    _attr_name = "Stargazing Upcoming Events"
-    _attr_unique_id = "stargazing_upcoming_events"
+    _attr_name = "Upcoming Events"
     _attr_icon = "mdi:meteor"
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, hass: HomeAssistant, events_fetcher) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | None, events_fetcher) -> None:
         """Initialize the sensor."""
         self.hass = hass
+        self._entry = entry
         self.events_fetcher = events_fetcher
         self._attr_native_value = 0
+
+        # Set unique_id based on entry or use legacy ID
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_upcoming_events"
+            self._attr_device_info = DeviceInfo(
+                entry_type=DeviceEntryType.SERVICE,
+                identifiers={(DOMAIN, entry.entry_id)},
+                name="Stargazing Conditions",
+                manufacturer="Stargazing Integration",
+                model="Astronomy Monitor",
+                sw_version="1.0.0",
+            )
+        else:
+            self._attr_unique_id = "stargazing_upcoming_events"
+
+    async def async_added_to_hass(self) -> None:
+        """Register state change listener and do initial update."""
+        # Do initial update
+        await self.async_update()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
