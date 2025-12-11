@@ -3,7 +3,7 @@
   "domain": "stargazing",
   "name": "Stargazing Conditions",
   "codeowners": ["@beaubeau"],
-  "config_flow": false,
+  "config_flow": true,
   "documentation": "https://github.com/beaubeau/HALink/wiki/Stargazing",
   "requirements": ["requests>=2.25.0"],
   "version": "1.0.0",
