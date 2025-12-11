@@ -1,16 +1,12 @@
 """Home Assistant integration for stargazing condition monitoring."""
 
 import logging
-from datetime import datetime, timedelta
 
 import voluptuous as vol
-from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.discovery import load_platform
 from homeassistant.helpers.typing import ConfigType
 
-from .astronomy_events import AstronomyEventsFetcher
 from .const import (
     CONF_MIN_CLOUDLESS,
     CONF_MIN_SCORE,
@@ -30,6 +26,7 @@ from .const import (
 )
 from .notifications import StargazingNotificationService
 from .scoring import StargazingScoringEngine
+from .astronomy_events import AstronomyEventsFetcher
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,14 +76,10 @@ class StargazingData:
 
         self.events_fetcher = None
         self.last_score = None
-        self.last_notification_type = None
-        self.last_notification_time = None
 
     async def initialize_events_fetcher(self):
         """Initialize astronomy events fetcher with location."""
         try:
-            from homeassistant.helpers.entity import get_device_registry
-
             weather_state = self.hass.states.get("weather.astroweather_backyard")
             if weather_state:
                 attrs = weather_state.attributes
@@ -101,30 +94,21 @@ class StargazingData:
             _LOGGER.error(f"Error initializing events fetcher: {e}")
 
     async def update_stargazing_data(self) -> dict:
-        """Update stargazing quality score and related data."""
+        """Update stargazing quality score."""
         try:
             weather_state = self.hass.states.get("weather.astroweather_backyard")
             if not weather_state:
-                _LOGGER.warning("AstroWeather entity not found")
-                return {"score": 0, "rating": "Unknown", "error": "AstroWeather unavailable"}
+                return {"score": 0, "rating": "Unknown"}
 
             score = self.scoring_engine.calculate_score(weather_state.attributes)
             rating = self.scoring_engine.get_rating(score)
-            breakdown = self.scoring_engine.get_score_breakdown(weather_state.attributes)
-
-            data = {
-                "score": score,
-                "rating": rating,
-                "emoji": self.scoring_engine.get_rating_emoji(score),
-                "breakdown": breakdown,
-            }
 
             self.last_score = score
-            return data
+            return {"score": score, "rating": rating}
 
         except Exception as e:
             _LOGGER.error(f"Error updating stargazing data: {e}")
-            return {"score": 0, "rating": "Error", "error": str(e)}
+            return {"score": 0, "rating": "Error"}
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -133,19 +117,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.info("Setting up Stargazing integration")
 
         stargazing_config = config.get(DOMAIN, {})
-
-        # Create shared data
         data = StargazingData(hass, stargazing_config)
         hass.data[DOMAIN] = data
 
-        # Initialize events fetcher
         await data.initialize_events_fetcher()
-
-        # Register services
-        await _async_setup_services(hass, data)
-
-        # Load sensor platform
-        load_platform(hass, "sensor", DOMAIN, {}, stargazing_config)
+        await _register_services(hass, data)
 
         _LOGGER.info("Stargazing integration setup complete")
         return True
@@ -155,38 +131,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         return False
 
 
-async def _async_setup_services(hass: HomeAssistant, data: StargazingData):
-    """Register all services."""
+async def _register_services(hass: HomeAssistant, data: StargazingData):
+    """Register services."""
 
     async def handle_test_notification(call):
-        """Handle test notification service call."""
-        _LOGGER.info("Test notification service called")
-        result = await data.notification_service.send_test_notification()
-        if result:
-            _LOGGER.info("Test notification sent successfully")
+        """Handle test notification."""
+        await data.notification_service.send_test_notification()
 
     async def handle_check_now(call):
-        """Handle immediate condition check."""
-        _LOGGER.info("Manual condition check requested")
+        """Check conditions now."""
         await data.update_stargazing_data()
-        score = data.last_score or 0
-        if score >= 80:
-            breakdown = data.scoring_engine.get_score_breakdown(
-                hass.states.get("weather.astroweather_backyard").attributes
-            )
-            await data.notification_service.send_amazing_conditions_alert(
-                score, breakdown, {"start": "N/A", "end": "N/A"}
-            )
 
     async def handle_refresh_events(call):
-        """Handle events refresh."""
-        _LOGGER.info("Astronomy events refresh requested")
+        """Refresh events."""
         if data.events_fetcher:
             await data.events_fetcher.fetch_events()
-            _LOGGER.info("Events refreshed")
 
     hass.services.async_register(DOMAIN, SERVICE_TEST_NOTIFY, handle_test_notification)
     hass.services.async_register(DOMAIN, SERVICE_CHECK_NOW, handle_check_now)
     hass.services.async_register(DOMAIN, SERVICE_REFRESH_EVENTS, handle_refresh_events)
-
-    _LOGGER.info("Services registered: test_notification, check_now, refresh_events")
