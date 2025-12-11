@@ -5,8 +5,10 @@ import logging
 
 import voluptuous as vol
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import ConfigEntryNotFound
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.discovery import async_load_platform
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,11 +35,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     conf = config[DOMAIN]
 
     # Store config in hass.data so sensor platform can access it
-    hass.data[DOMAIN] = conf
+    if DOMAIN not in hass.data:
+        hass.data[DOMAIN] = {}
+    hass.data[DOMAIN]["config"] = conf
 
-    # Load sensor platform
-    await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "import"}, data=conf
+    # Load sensor platform directly via discovery
+    hass.async_create_task(
+        async_load_platform(
+            hass, Platform.SENSOR, DOMAIN, conf, config
+        )
     )
 
     return True
