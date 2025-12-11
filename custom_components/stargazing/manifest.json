@@ -3,11 +3,11 @@
   "domain": "stargazing",
   "name": "Stargazing Conditions",
   "codeowners": ["@beaubeau"],
-  "config_flow": true,
-  "documentation": "https://github.com/beaubeau/HALink/wiki/Stargazing",
+  "config_flow": false,
+  "documentation": "https://github.com/beaubeau/stargazing",
   "requirements": ["requests>=2.25.0"],
   "version": "1.0.0",
-  "issue_tracker": "https://github.com/beaubeau/HALink/issues",
+  "issue_tracker": "https://github.com/beaubeau/stargazing/issues",
   "homeassistant": {
     "min_version": "2023.12.0"
   }

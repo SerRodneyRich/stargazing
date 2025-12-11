@@ -1,33 +1,43 @@
-"""The Stargazing integration."""
+"""The Stargazing integration - YAML configuration only."""
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
+import logging
+
+import voluptuous as vol
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+
+_LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "stargazing"
 PLATFORMS = [Platform.SENSOR]
 
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.Schema(
+            {
+                vol.Optional("notify_service", default="notify.mandalore"): cv.string,
+            }
+        )
+    },
+    extra=vol.ALLOW_EXTRA,
+)
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Stargazing from a config entry."""
-    # Store config data for the sensor platform
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
 
-    hass.data[DOMAIN][entry.entry_id] = entry.data
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Stargazing integration from YAML."""
+    if DOMAIN not in config:
+        return True
+
+    conf = config[DOMAIN]
+
+    # Store config in hass.data so sensor platform can access it
+    hass.data[DOMAIN] = conf
 
     # Load sensor platform
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "import"}, data=conf
+    )
 
     return True
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    if unload_ok and entry.entry_id in hass.data.get(DOMAIN, {}):
-        del hass.data[DOMAIN][entry.entry_id]
-
-    return unload_ok

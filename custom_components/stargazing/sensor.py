@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .scoring import StargazingScoringEngine
@@ -18,13 +19,23 @@ from .astronomy_events import AstronomyEventsFetcher
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
+async def async_setup_platform(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config: ConfigType,
     async_add_entities: AddEntitiesCallback,
+    discovery_info: dict | None = None,
 ) -> None:
-    """Set up stargazing sensors from config entry."""
-    # Create scoring engine with default thresholds
+    """Set up stargazing sensors from YAML configuration."""
+    # Get config from discovery_info (passed from __init__.py)
+    if discovery_info:
+        notify_service = discovery_info.get("notify_service", "notify.mandalore")
+    else:
+        # Fallback to hass.data if available
+        notify_service = hass.data.get(DOMAIN, {}).get(
+            "notify_service", "notify.mandalore"
+        )
+
+    # Create scoring engine with high standards
     scoring_engine = StargazingScoringEngine(
         min_cloudless=95,
         min_transparency=70,
@@ -46,11 +57,11 @@ async def async_setup_entry(
 
     # Create all sensor entities
     entities = [
-        StargazingQualitySensor(hass, config_entry, scoring_engine),
-        StargazingRatingSensor(hass, config_entry, scoring_engine),
-        OptimalViewingStartSensor(hass, config_entry),
-        OptimalViewingEndSensor(hass, config_entry),
-        UpcomingEventsSensor(hass, config_entry, events_fetcher),
+        StargazingQualitySensor(hass, scoring_engine),
+        StargazingRatingSensor(hass, scoring_engine),
+        OptimalViewingStartSensor(hass),
+        OptimalViewingEndSensor(hass),
+        UpcomingEventsSensor(hass, events_fetcher),
     ]
 
     async_add_entities(entities, update_before_add=True)
@@ -60,19 +71,16 @@ class StargazingBaseSensor(SensorEntity):
     """Base sensor for stargazing."""
 
     _attr_has_entity_name = False
+    _attr_should_poll = False
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        config_entry: ConfigEntry,
-    ) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the sensor."""
         self.hass = hass
-        self.config_entry = config_entry
         self._attr_native_value = None
 
     async def async_added_to_hass(self) -> None:
         """Register state change listener."""
+
         @callback
         def async_weather_state_listener(event):
             """Handle weather state changes."""
@@ -99,6 +107,11 @@ class StargazingQualitySensor(StargazingBaseSensor):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_icon = "mdi:star"
 
+    def __init__(self, hass: HomeAssistant, scoring_engine: StargazingScoringEngine) -> None:
+        """Initialize sensor with scoring engine."""
+        super().__init__(hass)
+        self.scoring_engine = scoring_engine
+
     async def async_update(self) -> None:
         """Update the sensor value."""
         try:
@@ -108,8 +121,7 @@ class StargazingQualitySensor(StargazingBaseSensor):
                 return
 
             attrs = weather_state.attributes
-            scoring_engine = StargazingScoringEngine(95, 70, 65)
-            score = scoring_engine.calculate_score(attrs)
+            score = self.scoring_engine.calculate_score(attrs)
             self._attr_native_value = score
 
         except Exception as e:
@@ -126,10 +138,9 @@ class StargazingQualitySensor(StargazingBaseSensor):
 
             attrs = weather_state.attributes
             score = self._attr_native_value or 0
-            scoring_engine = StargazingScoringEngine(95, 70, 65)
 
             return {
-                "rating": scoring_engine.get_rating(int(score)),
+                "rating": self.scoring_engine.get_rating(int(score)),
                 "cloudless": attrs.get("cloudless_percentage", 0),
                 "transparency": attrs.get("transparency_percentage", 0),
                 "seeing": attrs.get("seeing_percentage", 0),
@@ -148,6 +159,11 @@ class StargazingRatingSensor(StargazingBaseSensor):
     _attr_unique_id = "stargazing_rating"
     _attr_icon = "mdi:sparkles"
 
+    def __init__(self, hass: HomeAssistant, scoring_engine: StargazingScoringEngine) -> None:
+        """Initialize sensor with scoring engine."""
+        super().__init__(hass)
+        self.scoring_engine = scoring_engine
+
     async def async_update(self) -> None:
         """Update the sensor value."""
         try:
@@ -157,9 +173,8 @@ class StargazingRatingSensor(StargazingBaseSensor):
                 return
 
             attrs = weather_state.attributes
-            scoring_engine = StargazingScoringEngine(95, 70, 65)
-            score = scoring_engine.calculate_score(attrs)
-            self._attr_native_value = scoring_engine.get_rating(score)
+            score = self.scoring_engine.calculate_score(attrs)
+            self._attr_native_value = self.scoring_engine.get_rating(score)
 
         except Exception as e:
             _LOGGER.error(f"Error updating rating: {e}")
@@ -174,11 +189,10 @@ class StargazingRatingSensor(StargazingBaseSensor):
                 return {}
 
             attrs = weather_state.attributes
-            scoring_engine = StargazingScoringEngine(95, 70, 65)
-            score = scoring_engine.calculate_score(attrs)
+            score = self.scoring_engine.calculate_score(attrs)
 
             return {
-                "emoji": scoring_engine.get_rating_emoji(score),
+                "emoji": self.scoring_engine.get_rating_emoji(score),
                 "score": score,
             }
         except Exception as e:
@@ -201,7 +215,6 @@ class OptimalViewingStartSensor(StargazingBaseSensor):
                 self._attr_native_value = "Unknown"
                 return
 
-            from datetime import datetime
             dusk_time = datetime.fromisoformat(sun_dusk.state.replace("Z", "+00:00"))
             local_dusk = dusk_time.astimezone()
             self._attr_native_value = local_dusk.strftime("%I:%M %p")
@@ -221,7 +234,6 @@ class OptimalViewingEndSensor(StargazingBaseSensor):
     async def async_update(self) -> None:
         """Update the sensor value."""
         try:
-            from datetime import datetime, timedelta
             sun_setting = self.hass.states.get("sensor.sun_next_setting")
             if not sun_setting or sun_setting.state in ("unknown", "unavailable"):
                 self._attr_native_value = "Unknown"
@@ -247,16 +259,11 @@ class UpcomingEventsSensor(SensorEntity):
     _attr_unique_id = "stargazing_upcoming_events"
     _attr_icon = "mdi:meteor"
     _attr_has_entity_name = False
+    _attr_should_poll = False
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        config_entry: ConfigEntry,
-        events_fetcher,
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, events_fetcher) -> None:
         """Initialize the sensor."""
         self.hass = hass
-        self.config_entry = config_entry
         self.events_fetcher = events_fetcher
         self._attr_native_value = 0
 
@@ -265,8 +272,6 @@ class UpcomingEventsSensor(SensorEntity):
         """Return additional attributes."""
         if not self.events_fetcher or not self.events_fetcher.events:
             return {"events": [], "summary": "No upcoming events"}
-
-        from datetime import datetime
 
         events = []
         now = datetime.now()
