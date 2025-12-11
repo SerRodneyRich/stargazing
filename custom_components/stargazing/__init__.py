@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
@@ -228,6 +229,30 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     except Exception as e:
         _LOGGER.error(f"Error setting up Stargazing integration: {e}")
+        return False
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Stargazing from a config entry."""
+    try:
+        # Create shared data from config entry
+        data = StargazingData(hass, dict(entry.data))
+        hass.data[DOMAIN] = data
+
+        # Initialize events fetcher
+        await data.initialize_events_fetcher()
+
+        # Register services
+        await _async_setup_services(hass, data)
+
+        # Forward to sensor platform
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+        _LOGGER.info("Stargazing config entry setup complete")
+        return True
+
+    except Exception as e:
+        _LOGGER.error(f"Error setting up Stargazing config entry: {e}")
         return False
 
 
