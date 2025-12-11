@@ -73,6 +73,9 @@ async def async_setup_entry(
         OptimalViewingStartSensor(hass, entry),
         OptimalViewingEndSensor(hass, entry),
         UpcomingEventsSensor(hass, entry, events_fetcher),
+        NextEvent1Sensor(hass, entry, events_fetcher),
+        NextEvent2Sensor(hass, entry, events_fetcher),
+        NextEvent3Sensor(hass, entry, events_fetcher),
     ]
 
     async_add_entities(entities, update_before_add=True)
@@ -121,6 +124,9 @@ async def async_setup_platform(
         OptimalViewingStartSensor(hass, None),
         OptimalViewingEndSensor(hass, None),
         UpcomingEventsSensor(hass, None, events_fetcher),
+        NextEvent1Sensor(hass, None, events_fetcher),
+        NextEvent2Sensor(hass, None, events_fetcher),
+        NextEvent3Sensor(hass, None, events_fetcher),
     ]
 
     async_add_entities(entities, update_before_add=True)
@@ -415,3 +421,141 @@ class UpcomingEventsSensor(SensorEntity):
             self._attr_native_value = len(self.events_fetcher.events)
         else:
             self._attr_native_value = 0
+
+
+class BaseEventSensor(SensorEntity):
+    """Base class for individual event sensors."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_icon = "mdi:calendar-star"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry | None,
+        events_fetcher,
+        event_index: int,
+    ) -> None:
+        """Initialize the sensor."""
+        self.hass = hass
+        self._entry = entry
+        self.events_fetcher = events_fetcher
+        self.event_index = event_index
+        self._attr_native_value = None
+
+        # Set up device info if we have a config entry
+        if entry:
+            self._attr_device_info = DeviceInfo(
+                entry_type=DeviceEntryType.SERVICE,
+                identifiers={(DOMAIN, entry.entry_id)},
+                name="Stargazing Conditions",
+                manufacturer="Stargazing Integration",
+                model="Astronomy Monitor",
+                sw_version="1.0.0",
+            )
+
+    async def async_added_to_hass(self) -> None:
+        """Do initial update when added."""
+        await self.async_update()
+
+    async def async_update(self) -> None:
+        """Update the sensor value."""
+        if not self.events_fetcher or not self.events_fetcher.events:
+            self._attr_native_value = "No events"
+            return
+
+        now = datetime.now()
+        upcoming = [
+            e for e in self.events_fetcher.events if e.get("datetime", now) >= now
+        ]
+
+        if len(upcoming) > self.event_index:
+            event = upcoming[self.event_index]
+            event_time = event.get("datetime", now)
+            days_until = (event_time - now).days
+
+            if days_until == 0:
+                when = "Tonight"
+            elif days_until == 1:
+                when = "Tomorrow"
+            else:
+                when = f"In {days_until} days"
+
+            self._attr_native_value = f"{event.get('name', 'Unknown')}"
+            self._event_data = event
+        else:
+            self._attr_native_value = "No event scheduled"
+            self._event_data = None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes."""
+        if not hasattr(self, "_event_data") or not self._event_data:
+            return {}
+
+        now = datetime.now()
+        event_time = self._event_data.get("datetime", now)
+        days_until = (event_time - now).days
+
+        return {
+            "type": self._event_data.get("type", "unknown"),
+            "description": self._event_data.get("description", ""),
+            "datetime": event_time.isoformat(),
+            "days_until": days_until,
+            "when": (
+                "Tonight"
+                if days_until == 0
+                else "Tomorrow" if days_until == 1 else f"In {days_until} days"
+            ),
+            "date": event_time.strftime("%b %d, %Y"),
+            "time": event_time.strftime("%I:%M %p"),
+        }
+
+
+class NextEvent1Sensor(BaseEventSensor):
+    """Sensor for next astronomy event."""
+
+    _attr_name = "Next Event"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry | None, events_fetcher
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(hass, entry, events_fetcher, 0)
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_next_event_1"
+        else:
+            self._attr_unique_id = "stargazing_next_event_1"
+
+
+class NextEvent2Sensor(BaseEventSensor):
+    """Sensor for second upcoming astronomy event."""
+
+    _attr_name = "Next Event 2"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry | None, events_fetcher
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(hass, entry, events_fetcher, 1)
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_next_event_2"
+        else:
+            self._attr_unique_id = "stargazing_next_event_2"
+
+
+class NextEvent3Sensor(BaseEventSensor):
+    """Sensor for third upcoming astronomy event."""
+
+    _attr_name = "Next Event 3"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry | None, events_fetcher
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(hass, entry, events_fetcher, 2)
+        if entry:
+            self._attr_unique_id = f"{entry.entry_id}_next_event_3"
+        else:
+            self._attr_unique_id = "stargazing_next_event_3"
