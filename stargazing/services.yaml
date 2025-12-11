@@ -1,0 +1,14 @@
+send_test_notification:
+  name: Send Test Notification
+  description: Send a test notification via Pushover to verify the integration is working correctly.
+  fields: {}
+
+check_conditions_now:
+  name: Check Conditions Now
+  description: Immediately check stargazing conditions and send notification if conditions are good (score ≥80).
+  fields: {}
+
+refresh_astronomy_events:
+  name: Refresh Astronomy Events
+  description: Refresh the list of upcoming astronomy events from external sources.
+  fields: {}

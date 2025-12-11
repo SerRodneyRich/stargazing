@@ -1,0 +1,80 @@
+# Example configurations for the Stargazing integration
+# Add these to your Home Assistant configuration.yaml
+
+# ============================================
+# MINIMAL CONFIGURATION (recommended to start)
+# ============================================
+stargazing:
+  notify_service: notify.mandalore
+
+
+# ============================================
+# FULL CONFIGURATION (with all options)
+# ============================================
+# stargazing:
+#   # Pushover notification service
+#   notify_service: notify.mandalore
+#
+#   # Minimum score to send notifications (0-100)
+#   minimum_score_notify: 80
+#
+#   # High standards thresholds (adjust to your preferences)
+#   minimum_cloudless: 95        # Require 95%+ cloudless
+#   minimum_transparency: 70     # Require 70%+ transparency
+#   minimum_seeing: 65          # Require 65%+ seeing (steady air)
+#
+#   # Your location (for astronomy events)
+#   zip_code: "88431"
+
+
+# ============================================
+# RELAXED STANDARDS (for less ideal skies)
+# ============================================
+# stargazing:
+#   notify_service: notify.mandalore
+#   minimum_score_notify: 70
+#   minimum_cloudless: 90        # More lenient
+#   minimum_transparency: 60
+#   minimum_seeing: 55
+
+
+# ============================================
+# STRICT STANDARDS (for high-performance observation)
+# ============================================
+# stargazing:
+#   notify_service: notify.mandalore
+#   minimum_score_notify: 85
+#   minimum_cloudless: 98        # Nearly perfect
+#   minimum_transparency: 80
+#   minimum_seeing: 75
+
+
+# ============================================
+# ALTERNATIVE NOTIFICATION SERVICE
+# ============================================
+# If using a different notification service (e.g., native_app, telegram):
+# stargazing:
+#   notify_service: notify.mobile_app_iphone
+#   minimum_score_notify: 80
+
+
+# ============================================
+# TIPS
+# ============================================
+#
+# 1. Start with minimal config above
+# 2. Get test notification working first:
+#    - Developer Tools → Services → stargazing.send_test_notification
+# 3. Adjust score thresholds based on your preferences
+# 4. Check the score sensor regularly to understand when conditions are good:
+#    - Developer Tools → States → search "stargazing_quality_score"
+#
+# For 88431 area (very high dark skies):
+# - Typical "good" nights: 70-80 score
+# - Typical "amazing" nights: 80-90 score
+# - Rare "exceptional" nights: 90-100 score
+#
+# If you never get above 60 score, consider lowering thresholds:
+# - Lower minimum_cloudless to 90 or 85
+# - Lower minimum_transparency to 60 or 50
+# - Lower minimum_seeing to 55 or 50

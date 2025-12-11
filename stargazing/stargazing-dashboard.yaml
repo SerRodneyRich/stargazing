@@ -1,0 +1,148 @@
+# Stargazing Conditions Dashboard Card
+# Add this to your Lovelace dashboard YAML or use the UI to create a new card
+
+type: vertical-stack
+title: 🌟 Stargazing Conditions
+cards:
+  # Main score and rating
+  - type: custom:mushroom-template-card
+    primary: |
+      {% set score = states('sensor.stargazing_quality_score') %}
+      Quality: {{ score }}/100
+    secondary: |
+      {% set rating = states('sensor.stargazing_rating') %}
+      {{ rating }}
+    icon: |
+      {% set score = states('sensor.stargazing_quality_score') | int(0) %}
+      {% if score >= 90 %}
+        ⭐
+      {% elif score >= 80 %}
+        🌟
+      {% elif score >= 60 %}
+        ✨
+      {% else %}
+        🌫️
+      {% endif %}
+    fill_container: true
+    layout: vertical
+    multiline_secondary: false
+
+  # Sky quality breakdown - horizontal bar chart style
+  - type: custom:bar-card
+    entities:
+      - entity: sensor.astroweather_backyard_cloudless
+        name: Cloudless
+        icon: mdi:cloud
+      - entity: sensor.astroweather_backyard_transparency
+        name: Transparency
+        icon: mdi:eye
+      - entity: sensor.astroweather_backyard_seeing_percentage
+        name: Seeing
+        icon: mdi:telescope
+      - entity: sensor.astroweather_backyard_calm_percentage
+        name: Calm (Wind)
+        icon: mdi:wind-power
+    unit_of_measurement: "%"
+    columns: 1
+    height: 200px
+    bar_entity_style: "background"
+    value: "outside"
+
+  # Viewing window and moon info
+  - type: entities
+    entities:
+      - type: custom:template-entity-row
+        name: "Optimal Viewing"
+        state: |
+          {% set start = states('sensor.astroweather_backyard_sun_next_setting') %}
+          {% set dusk = states('sensor.astroweather_backyard_sun_next_dusk') %}
+          {{ as_timestamp(dusk) | timestamp_custom('%I:%M %p') }} - 12:00 AM
+      - type: custom:template-entity-row
+        name: "Moon Phase"
+        state: |
+          {% set phase = state_attr('weather.astroweather_backyard', 'moon_phase') | int(0) %}
+          {{ phase }}% - {{ state_attr('weather.astroweather_backyard', 'moon_icon') }}
+      - type: custom:template-entity-row
+        name: "Next Dark Night"
+        state: |
+          {% set dark_night = state_attr('weather.astroweather_backyard', 'moon_next_dark_night') %}
+          {% if dark_night %}
+            {{ as_timestamp(dark_night) | timestamp_custom('%b %d') }}
+          {% else %}
+            N/A
+          {% endif %}
+
+  # Action buttons
+  - type: horizontal-stack
+    cards:
+      - type: button
+        name: "Send Test"
+        icon: mdi:bell-ring
+        tap_action:
+          action: call-service
+          service: stargazing.send_test_notification
+          service_data: {}
+
+      - type: button
+        name: "Check Now"
+        icon: mdi:refresh
+        tap_action:
+          action: call-service
+          service: stargazing.check_conditions_now
+          service_data: {}
+
+      - type: button
+        name: "Refresh Events"
+        icon: mdi:meteor
+        tap_action:
+          action: call-service
+          service: stargazing.refresh_astronomy_events
+          service_data: {}
+
+  # Upcoming astronomy events
+  - type: custom:template-entity-row
+    name: "Upcoming Events"
+    state: |
+      {% set events = state_attr('sensor.stargazing_upcoming_astronomy_events', 'events') %}
+      {% if events %}
+        {{ events | length }} events
+      {% else %}
+        No events
+      {% endif %}
+    condition: "{{ state_attr('sensor.stargazing_upcoming_astronomy_events', 'events') | length > 0 }}"
+
+  # Events details (if available)
+  - type: markdown
+    content: |
+      ### Upcoming Events
+      {% set events = state_attr('sensor.stargazing_upcoming_astronomy_events', 'events') %}
+      {% if events %}
+        {% for event in events[:3] %}
+          **{{ event.name }}** {% if event.days_until == 0 %}(Tonight!){% elif event.days_until == 1 %}(Tomorrow!){% else %}(in {{ event.days_until }} days){% endif %}
+
+          {{ event.description }}
+
+        {% endfor %}
+      {% else %}
+        No major astronomical events in the next 30 days
+      {% endif %}
+    title: null
+
+  # Current conditions summary
+  - type: markdown
+    content: |
+      ### Tonight's Summary
+      {% set score = states('sensor.stargazing_quality_score') | int(0) %}
+      {% set rating = states('sensor.stargazing_rating') %}
+
+      **Rating:** {{ rating }} ({{ score }}/100)
+
+      {% if score >= 90 %}
+        🎉 **EXCEPTIONAL CONDITIONS!** Get outside NOW if possible. Perfect stargazing night!
+      {% elif score >= 80 %}
+        🌟 **AMAZING STARS!** Great opportunity for stargazing. Don't miss it!
+      {% elif score >= 60 %}
+        ✨ **Good conditions.** You can observe, but not ideal.
+      {% else %}
+        🌫️ **Poor conditions.** Not recommended. Check back tomorrow.
+      {% endif %}
