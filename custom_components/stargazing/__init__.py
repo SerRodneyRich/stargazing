@@ -5,10 +5,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
 from .astronomy_events import AstronomyEventsFetcher
@@ -225,27 +223,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         # Register services
         await _async_setup_services(hass, data)
 
-        # Forward setup to sensor platform
-        await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": "import"},
-            data=stargazing_config,
-        )
-
         _LOGGER.info("Stargazing integration setup complete")
         return True
 
     except Exception as e:
         _LOGGER.error(f"Error setting up Stargazing integration: {e}")
         return False
-
-
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-):
-    """Set up Stargazing from a config entry."""
-    # This handles both YAML and config flow setup
-    pass
 
 
 async def _async_setup_services(hass: HomeAssistant, data: StargazingData):
