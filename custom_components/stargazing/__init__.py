@@ -76,6 +76,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry.options:
         hass.data[DOMAIN][f"{entry.entry_id}_options"] = entry.options
 
+    # Register the custom Lovelace card resource
+    hass.http.register_static_path(
+        "/hacsfiles/stargazing",
+        hass.config.path(f"custom_components/{DOMAIN}/www"),
+        True,
+    )
+
+    #  Add card to frontend
+    hass.data[DOMAIN]["lovelace_resources"] = {
+        "url": "/hacsfiles/stargazing/stargazing-card.js",
+        "type": "module",
+    }
+
     # Forward the setup to the sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

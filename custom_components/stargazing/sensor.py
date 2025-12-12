@@ -482,7 +482,9 @@ class BaseEventSensor(SensorEntity):
             else:
                 when = f"In {days_until} days"
 
-            self._attr_native_value = f"{event.get('name', 'Unknown')}"
+            # Full summary as state
+            time_str = event_time.strftime("%I:%M %p")
+            self._attr_native_value = f"{event.get('name', 'Unknown')} - {when} at {time_str}"
             self._event_data = event
         else:
             self._attr_native_value = "No event scheduled"
